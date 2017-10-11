@@ -1,0 +1,170 @@
+------------------------------------------
+Lab 1: Creating and Application from a Docker Image
+
+oc new-project mycliproject-username --description="My CLI Project" --display-name="CLI Project"
+oc new-app eformat/welcome
+oc expose service welcome --name=welcome --hostname=welcome.username.apps.foo.com
+curl http://welcome.username.apps.foo.com
+oc delete all --all
+
+------------------------------------------
+Lab 2: Creating and Application using a Dockerfile
+
+oc new-project mycliproject-username --description="My CLI Project" --display-name="CLI Project"
+oc new-app https://github.com/eformat/time.git --context-dir=sh
+oc expose svc time
+
+------------------------------------------
+Lab 4: Create App using JBoss EAP Builder Image
+
+oc new-project myjbossapp-username --display-name="My JBoss Applications" --description="A place for my JBoss EAP Applications"
+oc new-app openshift/jboss-eap64-openshift:latest~https://github.com/RedHatWorkshops/kitchensink --name=ks
+oc expose service ks
+
+------------------------------------------
+Lab 5: Create App using Templates
+
+
+
+------------------------------------------
+Lab 6: Scaling Applications
+
+-- from lab.1
+oc new-project mycliproject-username --description="My CLI Project" --display-name="CLI Project"
+oc new-app eformat/welcome
+oc expose service welcome --name=welcome --hostname=welcome.username.apps.foo.com
+curl http://welcome.username.apps.foo.com
+
+--
+oc scale --replicas=3 dc/welcome
+
+
+------------------------------------------
+Lab 7: Binary Java WAR file deployment
+
+oc new-project bindep-username --description="bindep-username" --display-name="bindep-username"
+export WAR_LOCATION=https://raw.githubusercontent.com/eformat/ps/master/deployments/ROOT.war
+oc new-app jboss-webserver30-tomcat8-openshift~https://github.com/eformat/ews-bin-deploy.git --name=petstore -o yaml | sed -e "/sourceStrategy/a \\
+\ \ \ \ \ \ \ \ env:\\
+\ \ \ \ \ \ \ \ - name: WAR_FILE_URL\\
+\ \ \ \ \ \ \ \ \ \ value: $WAR_LOCATION" | oc create -f -
+oc expose service petstore --hostname=petstore.apps.foo.com
+
+
+------------------------------------------
+Lab 9: Blue/Green Deployments
+
+oc new-project bluegreen-username --display-name="Blue Green Project" --description="Blue Green Project"
+oc new-app --image-stream=nodejs --code=https://github.com/eformat/bluegreen.git#master --name=blue
+oc expose service blue --hostname=bluegreen.apps.foo.com --name=bluegreen
+oc new-app --image-stream=nodejs --code=https://github.com/eformat/bluegreen.git#green --name=green
+
+oc get route/bluegreen -o yaml | sed -e 's/name: blue$/name: green/' | oc replace -f -
+oc get route/bluegreen -o yaml | sed -e 's/name: green$/name: blue/' | oc replace -f -
+
+
+------------------------------------------
+Lab 10: SCM Web hooks
+
+oc new-project scm-web-hooks-username --display-name="Test WebHooks"
+oc new-app --image-stream=nodejs --code=https://github.com/eformat/bluegreen.git#master --name=scm-web-hooks
+oc expose service scm-web-hooks --hostname=scm-web-hooks-username.apps.hpteams.com --name=scm-web-hooks
+curl -i -H "Accept: application/json" -H "X-HTTP-Method-Override: PUT" -X POST -k https://ose-master.hpteams.com:8443/oapi/v1/namespaces/scm-web-hooks-username/buildconfigs/scm-web-hooks/webhooks/wQhe9LmXetw6PVq8HmmP/generic
+
+
+------------------------------------------
+Lab 11: Rollback Applications
+
+oc rollback scm-web-hooks --to-version=2
+
+
+
+------------------------------------------
+Lab 12: Code promotion across environments
+
+oc new-project development-username --description="KitchenSink Development" --display-name="KitchenSink Development"
+oc new-project testing-username --description="KitchenSink Test" --display-name="KitchenSink Test"
+oc policy add-role-to-group system:image-puller system:serviceaccounts:testing-username -n development-username
+oc project development-username
+oc new-app --template=eap64-basic-s2i -p APPLICATION_NAME=myapp,HOSTNAME_HTTP=myapp-dev-username.apps.foo.com,SOURCE_REPOSITORY_URL=https://github.com/eformat/kitchensink,SOURCE_REPOSITORY_REF="",CONTEXT_DIR="" -l name=myapp-dev
+oc describe is/myapp
+oc tag development-username/myapp@sha256:b00927f104a4830e6fc41c68661f40f86ab25f16a72b6584d6cd72e59844b963 development-username/myapp:promote-qa
+oc project testing-username
+oc new-app development-username/myapp:promote-qa
+oc expose service myapp --hostname=myapp-test-username.apps.foo.com
+
+
+------------------------------------------
+Lab 14: Using Fabric8 tools and Maven archetypes
+
+secure the registry:
+https://docs.openshift.com/enterprise/3.1/install_config/install/docker_registry.html#securing-the-registry
+
+--
+oc new-project fabric8-username --display-name="Fabric8 demo project" --description='Fabric8 demo project'
+docker login -u wkshop -e wkshop@foo.com -p `oc whoami -t` docker-registry-default.apps.foo.com
+mkdir src/foo; cd src/foo
+mvn archetype:generate -DarchetypeCatalog=http://origin-repository.jboss.org/nexus/content/groups/ea/io/fabric8/archetypes/archetypes-catalog/2.2.0.redhat-621030/archetypes-catalog-2.2.0.redhat-621030-archetype-catalog.xml
+
+    Define value for property 'groupId': : com.example
+    Define value for property 'artifactId': : foo
+    Define value for property 'version':  1.0-SNAPSHOT: : latest
+    Define value for property 'package':  com.example: :
+
+cd foo
+mvn install docker:build -Pfabric8-snapshot -U -DskipTests=true
+docker tag -f docker.io/fabric8/foo docker-registry-default.apps.foo.com/fabric8-username/foo
+mvn install docker:push -Pfabric8-snapshot -U -DskipTests=true  -Dfabric8.dockerUser="fabric8-username/" -Dfabric8.dockerPrefix="docker-registry-default.apps.foo.com/" -Ddocker.username=$(oc whoami) -Ddocker.password=$(oc whoami -t)
+mvn -Pfabric8-snapshot fabric8:json -Dfabric8.dockerPrefix="172.30.155.167:5000/" -Dfabric8.dockerUser="fabric8-username/"
+mvn -Pfabric8-snapshot fabric8:json fabric8:apply -Dfabric8.dockerPrefix="172.30.234.236:5000/" -Dfabric8.recreate=true -Ddocker.password=$(oc whoami -t) -Dfabric8.dockerUser="fabric8-username/"
+
+
+------------------------------------------
+Lab 15: Create a build pipeline using Jenkins
+
+oc new-project development-jenkins-username --description="development-jenkins-username" --display-name="development-jenkins-username"
+oc new-project testing-jenkins-username --description="testing-jenkins-username" --display-name="testing-jenkins-username"
+oc new-project infra-jenkins-username --description="infra-jenkins-username" --display-name="infra-jenkins-username"
+oc policy add-role-to-group system:image-puller system:serviceaccounts:testing-jenkins-username -n development-jenkins-username
+
+--
+oc create -f - <<EOF
+{
+  "apiVersion": "v1",
+  "kind": "ServiceAccount",
+  "namespace" : "default",
+  "metadata": {
+    "name": "jenkins"
+  }
+}
+EOF
+
+oc describe serviceaccount jenkins -n default
+oc describe secret jenkins-token-e1khs -n default
+
+eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJkZWZhdWx0Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9zZWNyZXQubmFtZSI6ImplbmtpbnMtdG9rZW4tZTFraHMiLCJrdWJlcm5ldGVzLmlvL3NlcnZpY2VhY2NvdW50L3NlcnZpY2UtYWNjb3VudC5uYW1lIjoiamVua2lucyIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50LnVpZCI6Ijg4YjMzODQ0LTkyODYtMTFlNS05NmRhLTUyNTQwMGIzNmQxZCIsInN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDpkZWZhdWx0OmplbmtpbnMifQ.MaR2q6b8SHj87EFMIr-VpQsxhtAmRK_L-H-ZU0G8goQf1BKKtcQkq1m714fl4q5BsqiCNQ46EvNMwDIbqp1xlkZnpJOmNYVgCgoHkK9tYWnq2-pdJhiy_O9r3mCI27miJIR8EKhWGCCqcTU7upBZjCHmriZ2rtlp3R4hjXVN6qdKQhVNiHGUWJyrP0l-cdUdxwNXD1VlxhbsW9qoVfyf572xpMpSPzigsLzSsMD-EEcfCc2zg1zQAyJp8mN3ikhcYL86rg8lw9LN98GYYPZRJGj0FrfaByXJ2ZQXKlvC1ODocGD4dnHS4XHbcp4-OqV2ZchncZ369-CH48wG4RVq-g
+
+--
+oc project development-jenkins-username
+
+------------------------------------------
+Lab 16: Create a clustered JBoss EAP application with session replication
+
+oc new-project session-replication-username --display-name="EAP Web Session Replication Demo" --description="EAP Web Session Replication Demo"
+oc policy add-role-to-user view system:serviceaccount:$(oc project -q):default -n $(oc project -q)
+oc new-app --template=eap64-basic-s2i -p APPLICATION_NAME=eap-app,SOURCE_REPOSITORY_URL=https://github.com/eformat/session-replication,SOURCE_REPOSITORY_REF='master',CONTEXT_DIR='/' -l name=eap-app
+oc scale dc/eap-app --replicas=2
+
+-- demo incremental builds
+oc get bc/eap-app -o yaml | sed -e 's/namespace: openshift$/namespace: openshift\n\ \ \ \ \ \ incremental: true/' | oc replace -f -
+
+-- demo rolling deployments
+  strategy:
+    resources: {}
+    rollingParams:
+      intervalSeconds: 1
+      maxSurge: 25%
+      maxUnavailable: 25%
+      timeoutSeconds: 600
+      updatePeriodSeconds: 1
+    type: Rolling
